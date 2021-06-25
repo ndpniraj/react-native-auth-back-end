@@ -23,7 +23,6 @@ exports.createUser = async (req, res) => {
 exports.userSignIn = async (req, res) => {
   const { email, password } = req.body;
 
-  console.log(email, password);
   const user = await User.findOne({ email });
 
   if (!user)
@@ -41,6 +40,21 @@ exports.userSignIn = async (req, res) => {
 
   const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
     expiresIn: '1d',
+  });
+
+  let oldTokens = user.tokens || [];
+
+  if (oldTokens.length) {
+    oldTokens = oldTokens.filter(t => {
+      const timeDiff = (Date.now() - parseInt(t.signedAt)) / 1000;
+      if (timeDiff < 86400) {
+        return t;
+      }
+    });
+  }
+
+  await User.findByIdAndUpdate(user._id, {
+    tokens: [...oldTokens, { token, signedAt: Date.now().toString() }],
   });
 
   const userInfo = {
@@ -80,5 +94,23 @@ exports.uploadProfile = async (req, res) => {
       .status(500)
       .json({ success: false, message: 'server error, try after some time' });
     console.log('Error while uploading profile image', error.message);
+  }
+};
+
+exports.signOut = async (req, res) => {
+  if (req.headers && req.headers.authorization) {
+    const token = req.headers.authorization.split(' ')[1];
+    if (!token) {
+      return res
+        .status(401)
+        .json({ success: false, message: 'Authorization fail!' });
+    }
+
+    const tokens = req.user.tokens;
+
+    const newTokens = tokens.filter(t => t.token !== token);
+
+    await User.findByIdAndUpdate(req.user._id, { tokens: newTokens });
+    res.json({ success: true, message: 'Sign out successfully!' });
   }
 };
